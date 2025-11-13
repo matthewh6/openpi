@@ -458,7 +458,7 @@ class TrainConfig:
     # Name of the config. Must be unique. Will be used to reference this config.
     name: tyro.conf.Suppress[str]
     # Project name.
-    project_name: str = "openpi"
+    project_name: str = "openpi_finetune"
     # Experiment name. Will be used to name the metadata and checkpoint directories.
     exp_name: str = tyro.MISSING
 
@@ -487,9 +487,9 @@ class TrainConfig:
     data: DataConfigFactory = dataclasses.field(default_factory=FakeDataConfig)
 
     # Base directory for config assets (e.g., norm stats).
-    assets_base_dir: str = "./assets"
+    assets_base_dir: str = "/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/assets"
     # Base directory for checkpoints.
-    checkpoint_base_dir: str = "./checkpoints"
+    checkpoint_base_dir: str = "/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints"
 
     # Random seed that will be used by random generators during training.
     seed: int = 42
@@ -686,6 +686,7 @@ _CONFIGS = [
         ).get_freeze_filter(),
         # Turn off EMA for LoRA finetuning.
         ema_decay=None,
+        pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch",
     ),
     TrainConfig(
         name="pi0_fast_libero",

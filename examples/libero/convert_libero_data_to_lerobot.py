@@ -36,6 +36,7 @@ RAW_DATASET_NAMES = [
 
 def main(data_dir: str, *, push_to_hub: bool = False):
     # Clean up any existing dataset in the output directory
+    import ipdb; ipdb.set_trace()
     output_path = HF_LEROBOT_HOME / REPO_NAME
     if output_path.exists():
         shutil.rmtree(output_path)
