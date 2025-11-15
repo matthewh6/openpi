@@ -25,9 +25,11 @@ Example:
     # pi05_droid
     python examples/convert_jax_model_to_pytorch.py --checkpoint_dir /home/$USER/.cache/openpi/openpi-assets/checkpoints/pi05_droid --output_path /home/$USER/.cache/openpi/openpi-assets/checkpoints/pi05_droid_pytorch
 
-    # pi0_base
-    python examples/convert_jax_model_to_pytorch.py --checkpoint_dir /gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base --output_path /gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch --config_name pi0_libero
-    python examples/convert_jax_model_to_pytorch.py --checkpoint_dir /gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch --inspect_only --config_name pi0_libero
+    # pi0_libero
+    uv run examples/convert_jax_model_to_pytorch.py --checkpoint_dir /mmfs1/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_libero --output_path /mmfs1/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_libero_pytorch --config_name pi0_libero
+    
+    # pi05_libero
+    uv run examples/convert_jax_model_to_pytorch.py --checkpoint_dir /mmfs1/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi05_libero --output_path /mmfs1/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi05_libero_pytorch --config_name pi05_libero
 """
 
 import json
