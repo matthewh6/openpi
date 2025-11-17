@@ -132,7 +132,6 @@ class TMPI0Pytorch(PI0Pytorch):
         if time_prefix is None:
             time_prefix = self.sample_unif(actions.shape[0], actions.device)
 
-        
         # Old Flow matching interpolation style
         # time_prefix_expanded = time_prefix[:, None, None]
         # if self.config.prefix_mode == "flow_matching":
@@ -165,7 +164,6 @@ class TMPI0Pytorch(PI0Pytorch):
         # x_t = sqrt(alpha_bar_t) * x0 + sqrt(1 - alpha_bar_t) * eps
         noisy_prefix_embs = sqrt_ab * prefix_embs + sqrt_one_minus_ab * noise_prefix
 
-
         # Then handle the suffix
         if noise is None:
             noise = self.sample_noise(actions.shape, actions.device)
@@ -197,12 +195,12 @@ class TMPI0Pytorch(PI0Pytorch):
         att_2d_masks_4d = self._prepare_attention_masks_4d(att_2d_masks)
 
         # Apply gradient checkpointing if enabled
-        def forward_func(prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond):
+        def forward_func(noisy_prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond):
             (_, suffix_out), _ = self.paligemma_with_expert.forward(
                 attention_mask=att_2d_masks_4d,
                 position_ids=position_ids,
                 past_key_values=None,
-                inputs_embeds=[prefix_embs, suffix_embs],
+                inputs_embeds=[noisy_prefix_embs, suffix_embs],
                 use_cache=False,
                 adarms_cond=[None, adarms_cond],
             )

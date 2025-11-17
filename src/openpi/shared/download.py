@@ -16,7 +16,8 @@ import tqdm_loggable.auto as tqdm
 
 # Environment variable to control cache directory path, ~/.cache/openpi will be used by default.
 _OPENPI_DATA_HOME = "OPENPI_DATA_HOME"
-DEFAULT_CACHE_DIR = "/mmfs1/gscratch/scrubbed/hongmm/.cache/openpi"
+# DEFAULT_CACHE_DIR = "/mmfs1/gscratch/scrubbed/hongmm/.cache/openpi"
+DEFAULT_CACHE_DIR = "/gpfs/scrubbed/hongmm/.cache/openpi"
 
 logger = logging.getLogger(__name__)
 

@@ -487,12 +487,12 @@ class TrainConfig:
     data: DataConfigFactory = dataclasses.field(default_factory=FakeDataConfig)
 
     # Base directory for config assets (e.g., norm stats).
-    # assets_base_dir: str = "/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/assets"
-    assets_base_dir: str = "/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/assets"
+    assets_base_dir: str = "/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/assets"
+    # assets_base_dir: str = "/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/assets"
     
     # Base directory for checkpoints.
-    # checkpoint_base_dir: str = "/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints"
-    checkpoint_base_dir: str = "/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints"
+    checkpoint_base_dir: str = "/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints"
+    # checkpoint_base_dir: str = "/gscratch/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints"
 
     # Random seed that will be used by random generators during training.
     seed: int = 42
@@ -668,6 +668,7 @@ _CONFIGS = [
         # Below you can define other hyperparameters like the learning rate, number of training steps, etc.
         # Check the base TrainConfig class for a full list of available hyperparameters.
         num_train_steps=30_000,
+        pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch",
     ),
     TrainConfig(
         name="pi0_libero_low_mem_finetune",

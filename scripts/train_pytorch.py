@@ -409,6 +409,7 @@ def train_loop(config: _config.TrainConfig):
 
     # model = openpi.models_pytorch.pi0_pytorch.PI0Pytorch(model_cfg).to(device)
     print(model_cfg)
+    print("Training TMPi0Pytorch")
     model = openpi.models_pytorch.tmpi0_pytorch.TMPI0Pytorch(model_cfg).to(device)
 
     if hasattr(model, "gradient_checkpointing_enable"):
