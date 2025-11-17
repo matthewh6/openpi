@@ -126,16 +126,17 @@ class TMPI0Pytorch(PI0Pytorch):
 
         # First handle the prefix (VLM Embeddings)
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, lang_tokens, lang_masks)
+        
         if noise_prefix is None:
             noise_prefix = self.sample_noise(prefix_embs.shape, prefix_embs.device)
 
         if time_prefix is None:
             time_prefix = self.sample_unif(actions.shape[0], actions.device)
 
-        # Old Flow matching interpolation style
+        # # Old Flow matching interpolation style
+        # # if self.config.prefix_mode == "flow_matching":
         # time_prefix_expanded = time_prefix[:, None, None]
-        # if self.config.prefix_mode == "flow_matching":
-        #     noisy_prefix_embs = time_prefix_expanded * noise_prefix + (1 - time_prefix_expanded) * prefix_embs
+        # noisy_prefix_embs = time_prefix_expanded * noise_prefix + (1 - time_prefix_expanded) * prefix_embs
 
         # elif self.config.prefix_mode == "ddim":
         # DDIM-style / diffusion marginal mixing
@@ -240,14 +241,14 @@ class TMPI0Pytorch(PI0Pytorch):
 
         if noise_prefix is None:
             noise_prefix = self.sample_noise(prefix_embs.shape, prefix_embs.device)
+
         if time_prefix is None:
             # Fully clean
             time_prefix = torch.tensor(0.0, dtype=torch.float32, device=device)
             noisy_prefix_embs = prefix_embs
         else:
-            time_prefix_expanded = time_prefix[:, None, None]
-
             # Old Flow matching interpolation style
+            # time_prefix_expanded = time_prefix[:, None, None]
             # noisy_prefix_embs = time_prefix_expanded * noise_prefix + (1 - time_prefix_expanded) * prefix_embs
 
             # DDIM-style / diffusion marginal mixing
