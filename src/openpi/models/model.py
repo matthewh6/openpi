@@ -243,7 +243,9 @@ class BaseModelConfig(abc.ABC):
 
     def load_pytorch(self, train_config, weight_path: str):
         logger.info(f"train_config: {train_config}")
-        if 'pi0_lora_finetune' in weight_path: # TODO: brittle if statement, but use for now to seperate TM from DSRL
+        if (
+            "pi0_lora_finetune" in weight_path or "pi0_full_finetune" in weight_path
+        ):  # TODO: brittle if statement, but use for now to seperate TM from DSRL
             logger.info("Loading TMPI0Pytorch")
             model = tmpi0_pytorch.TMPI0Pytorch(config=train_config.model)
         else:

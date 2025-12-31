@@ -68,8 +68,14 @@ class Policy(BasePolicy):
 
     @override
     # def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
-    def infer(self, obs: dict, *, action_noise: np.ndarray | None = None, cond_t: np.ndarray | None = None) -> dict:  # type: ignore[misc]
-
+    def infer(
+        self,
+        obs: dict,
+        *,
+        action_noise: np.ndarray | None = None,
+        cond_t: np.ndarray | None = None,
+        prefix_noise: np.ndarray | None = None,
+    ) -> dict:  # type: ignore[misc]
         # TODO: for now fitting the naming conventions
         noise = action_noise
         timestep_prefix = cond_t
@@ -145,16 +151,6 @@ class Policy(BasePolicy):
             return arr.astype(np.float32, copy=False)
 
         if noise is not None:
-            # TODO: fix
-            if noise.shape[-1] != self._model.config.action_dim:
-
-                prefix_noise = noise[:, self._model.config.action_dim:]
-                noise = noise[:, :self._model.config.action_dim]
-                
-                prefix_noise = np.repeat(prefix_noise[:, None, :], 816, axis=1) # TODO: hardcoded
-                prefix_noise = torch.from_numpy(prefix_noise).to(self._pytorch_device)
-                sample_kwargs["noise_prefix"] = prefix_noise
-
             noise_arr = _prepare_noise(noise)
             if self._is_pytorch_model:
                 noise_tensor = torch.from_numpy(noise_arr).to(self._pytorch_device)
@@ -193,6 +189,18 @@ class Policy(BasePolicy):
                 prefix_tensor = jnp.asarray(prefix_arr)
             sample_kwargs["time_prefix"] = prefix_tensor
 
+        if prefix_noise is not None:
+            prefix_noise_arr = np.repeat(prefix_noise[:, None, :], 816, axis=1)  # TODO: hardcoded
+
+            if self._is_pytorch_model:
+                prefix_noise_tensor = torch.from_numpy(prefix_noise_arr).to(self._pytorch_device)
+            else:
+                prefix_noise_tensor = jnp.asarray(prefix_noise_arr)
+            sample_kwargs["noise_prefix"] = prefix_noise_tensor
+
+            # prefix_noise = torch.from_numpy(prefix_noise).to(self._pytorch_device)
+            # sample_kwargs["noise_prefix"] = prefix_noise
+            # prefix_noise_arr = _prepare_noise(prefix_noise)
 
         # if noise_prefix is not None:
         #     noise_prefix_arr = _prepare_noise(noise_prefix)
@@ -305,7 +313,7 @@ class Policy(BasePolicy):
                 inputs = jax.tree.map(lambda x: x[None, ...], inputs)
             else:
                 inputs = jax.tree.map(lambda x: x[np.newaxis, ...], inputs)
-        
+
         return self._get_prefix_rep(_model.Observation.from_dict(inputs))
 
     @property
