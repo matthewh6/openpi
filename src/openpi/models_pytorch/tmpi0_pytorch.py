@@ -128,6 +128,7 @@ class TMPI0Pytorch(PI0Pytorch):
 
         # First handle the prefix (VLM Embeddings)
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, lang_tokens, lang_masks)
+        
         if noise_prefix is None:
             noise_prefix = self.sample_noise(prefix_embs.shape, prefix_embs.device)
 
@@ -221,6 +222,7 @@ class TMPI0Pytorch(PI0Pytorch):
 
         if noise_prefix is None:
             noise_prefix = self.sample_noise(prefix_embs.shape, prefix_embs.device)
+
         if time_prefix is None:
             # Fully clean
             time_prefix = torch.tensor(0.0, dtype=torch.float32, device=device)

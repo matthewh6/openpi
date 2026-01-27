@@ -68,8 +68,14 @@ class Policy(BasePolicy):
 
     @override
     # def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
-    def infer(self, obs: dict, *, action_noise: np.ndarray | None = None, cond_t: np.ndarray | None = None) -> dict:  # type: ignore[misc]
-
+    def infer(
+        self,
+        obs: dict,
+        *,
+        action_noise: np.ndarray | None = None,
+        cond_t: np.ndarray | None = None,
+        prefix_noise: np.ndarray | None = None,
+    ) -> dict:  # type: ignore[misc]
         # TODO: for now fitting the naming conventions
         noise = action_noise
         timestep_prefix = cond_t
@@ -129,35 +135,17 @@ class Policy(BasePolicy):
                 arr = noise_array.detach().cpu().numpy()
             else:
                 arr = np.asarray(noise_array)
+
             if arr.ndim == 3:
-                if arr.shape[0] == batch_size:
-                    pass
-                elif arr.shape[0] == 1 and batched:
-                    arr = np.repeat(arr, batch_size, axis=0)
-                elif arr.shape[0] != 1 and not batched:
-                    raise ValueError(f"Noise batch dim must be 1 for unbatched inference, got {arr.shape}")
-                else:
-                    raise ValueError(
-                        f"Noise batch dimension {arr.shape[0]} does not match expected batch_size {batch_size}"
-                    )
+                assert arr.shape[0] == batch_size
             elif arr.ndim == 2:
-                if arr.shape == (ah, ad):
-                    arr = arr[None, ...]
-                    if batched:
-                        arr = np.repeat(arr, batch_size, axis=0)
-                elif arr.shape == (batch_size, ad):
+                if arr.shape == (batch_size, ad):
                     arr = np.repeat(arr[:, None, :], ah, axis=1)
                 elif batched and arr.shape == (1, ad):
                     arr = np.repeat(arr, batch_size, axis=0)
                     arr = np.repeat(arr[:, None, :], ah, axis=1)
                 else:
                     raise ValueError(f"Unexpected noise shape {arr.shape}")
-            elif arr.ndim == 1:
-                if arr.shape[0] != ad:
-                    raise ValueError(f"Noise vector must have length {ad}, got {arr.shape[0]}")
-                arr = np.repeat(arr[None, None, :], ah, axis=1)
-                if batched:
-                    arr = np.repeat(arr, batch_size, axis=0)
             else:
                 raise ValueError(f"Unsupported noise rank {arr.ndim}")
             return arr.astype(np.float32, copy=False)
@@ -200,6 +188,27 @@ class Policy(BasePolicy):
             else:
                 prefix_tensor = jnp.asarray(prefix_arr)
             sample_kwargs["time_prefix"] = prefix_tensor
+
+        if prefix_noise is not None:
+            prefix_noise_arr = np.repeat(prefix_noise[:, None, :], 816, axis=1)  # TODO: hardcoded
+
+            if self._is_pytorch_model:
+                prefix_noise_tensor = torch.from_numpy(prefix_noise_arr).to(self._pytorch_device)
+            else:
+                prefix_noise_tensor = jnp.asarray(prefix_noise_arr)
+            sample_kwargs["noise_prefix"] = prefix_noise_tensor
+
+            # prefix_noise = torch.from_numpy(prefix_noise).to(self._pytorch_device)
+            # sample_kwargs["noise_prefix"] = prefix_noise
+            # prefix_noise_arr = _prepare_noise(prefix_noise)
+
+        # if noise_prefix is not None:
+        #     noise_prefix_arr = _prepare_noise(noise_prefix)
+        #     if self._is_pytorch_model:
+        #         noise_prefix_tensor = torch.from_numpy(noise_prefix_arr).to(self._pytorch_device)
+        #     else:
+        #         noise_prefix_tensor = jnp.asarray(noise_prefix_arr)
+        #     sample_kwargs["noise_prefix"] = noise_prefix_tensor
 
         observation = _model.Observation.from_dict(inputs)
         start_time = time.monotonic()
@@ -304,7 +313,7 @@ class Policy(BasePolicy):
                 inputs = jax.tree.map(lambda x: x[None, ...], inputs)
             else:
                 inputs = jax.tree.map(lambda x: x[np.newaxis, ...], inputs)
-        
+
         return self._get_prefix_rep(_model.Observation.from_dict(inputs))
 
     @property
