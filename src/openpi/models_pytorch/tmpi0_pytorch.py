@@ -31,6 +31,14 @@ class TMPI0Pytorch(PI0Pytorch):
     def __init__(self, config):
         super().__init__(config)
 
+        # DDIM-style / diffusion marginal mixing
+        # Map continuous time in [0,1] to an alpha_bar in (0,1].
+        # Here we construct a simple beta schedule and get cumulative alpha_bar(t).
+        self.T = 1000
+        betas = torch.linspace(1e-4, 0.02, self.T, device=self.device)  # or your schedule
+        alphas = 1.0 - betas
+        self.alpha_bars = torch.cumprod(alphas, dim=0)  # (T,)
+
     def sample_unif(self, shape, device):
         time = torch.rand(shape, dtype=torch.float32, device=device)
         return time
@@ -60,12 +68,6 @@ class TMPI0Pytorch(PI0Pytorch):
 
             # Set attention masks so that image and language inputs do not attend to state or actions
             att_masks += [1]
-
-        # # Embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
-        # time_emb = create_sinusoidal_pos_embedding(
-        #     timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0, device=timestep.device
-        # )
-        # time_emb = time_emb.type(dtype=timestep.dtype)
 
         # Embed the two timesteps together
         time_emb = create_dual_sinusoidal_pos_embedding(
@@ -132,37 +134,20 @@ class TMPI0Pytorch(PI0Pytorch):
         if time_prefix is None:
             time_prefix = self.sample_unif(actions.shape[0], actions.device)
 
-        # Old Flow matching interpolation style
-        # time_prefix_expanded = time_prefix[:, None, None]
-        # if self.config.prefix_mode == "flow_matching":
-        #     noisy_prefix_embs = time_prefix_expanded * noise_prefix + (1 - time_prefix_expanded) * prefix_embs
-
-        # elif self.config.prefix_mode == "ddim":
-        # DDIM-style / diffusion marginal mixing
-        # Map continuous time in [0,1] to an alpha_bar in (0,1].
-        # Here we construct a simple beta schedule and get cumulative alpha_bar(t).
-        T = 1000
-        betas = torch.linspace(1e-4, 0.02, T, device=prefix_embs.device)  # or your schedule
-        alphas = 1.0 - betas
-        alpha_bars = torch.cumprod(alphas, dim=0)  # (T,)
-
         # convert continuous time in [0,1] to discrete index in [0, T-1]
         # if you prefer fractional timesteps you can linearly interpolate alpha_bars between indices.
-        t_idx = (time_prefix * (T - 1)).long().clamp(0, T - 1)  # (B,)
-
-        # gather alpha_bar per batch
-        # alpha_bars[t_idx] has shape (B,)
-        ab_t = alpha_bars[t_idx].to(prefix_embs.device)  # (B,)
+        t_idx = (time_prefix * (self.T - 1)).long().clamp(0, self.T - 1)  # (B,)
+        ab_t = self.alpha_bars[t_idx]  # (B,)
         sqrt_ab = torch.sqrt(ab_t)                        # (B,)
-        sqrt_one_minus_ab = torch.sqrt(1.0 - ab_t)        # (B,)
+        sqrt_bb = torch.sqrt(1.0 - ab_t)        # (B,)
 
         # expand to (B, 1, 1) to mix with (B, L, D)
         sqrt_ab = sqrt_ab[:, None, None]
-        sqrt_one_minus_ab = sqrt_one_minus_ab[:, None, None]
+        sqrt_bb = sqrt_bb[:, None, None]
 
         # DDIM forward-marginal style noisy conditioning:
         # x_t = sqrt(alpha_bar_t) * x0 + sqrt(1 - alpha_bar_t) * eps
-        noisy_prefix_embs = sqrt_ab * prefix_embs + sqrt_one_minus_ab * noise_prefix
+        noisy_prefix_embs = sqrt_ab * prefix_embs + sqrt_bb * noise_prefix
 
         # Then handle the suffix
         if noise is None:
@@ -183,7 +168,6 @@ class TMPI0Pytorch(PI0Pytorch):
         ):
             suffix_embs = suffix_embs.to(dtype=torch.bfloat16)
             noisy_prefix_embs = noisy_prefix_embs.to(dtype=torch.bfloat16)
-            # prefix_embs = prefix_embs.to(dtype=torch.bfloat16)
 
         pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
         att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
@@ -206,9 +190,6 @@ class TMPI0Pytorch(PI0Pytorch):
             )
             return suffix_out
 
-        # suffix_out = self._apply_checkpoint(
-        #     forward_func, prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond
-        # )
         suffix_out = self._apply_checkpoint(
             forward_func, noisy_prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond
         )
@@ -245,34 +226,23 @@ class TMPI0Pytorch(PI0Pytorch):
             time_prefix = torch.tensor(0.0, dtype=torch.float32, device=device)
             noisy_prefix_embs = prefix_embs
         else:
-            time_prefix_expanded = time_prefix[:, None, None]
-
-            # Old Flow matching interpolation style
-            # noisy_prefix_embs = time_prefix_expanded * noise_prefix + (1 - time_prefix_expanded) * prefix_embs
-
-            # DDIM-style / diffusion marginal mixing
-            T = 1000
-            betas = torch.linspace(1e-4, 0.02, T, device=prefix_embs.device)  # or your schedule
-            alphas = 1.0 - betas
-            alpha_bars = torch.cumprod(alphas, dim=0)  # (T,)
-
             # convert continuous time in [0,1] to discrete index in [0, T-1]
             # if you prefer fractional timesteps you can linearly interpolate alpha_bars between indices.
-            t_idx = (time_prefix * (T - 1)).long().clamp(0, T - 1)  # (B,)
+            t_idx = (time_prefix * (self.T - 1)).long().clamp(0, self.T - 1)  # (B,)
 
             # gather alpha_bar per batch
             # alpha_bars[t_idx] has shape (B,)
-            ab_t = alpha_bars[t_idx].to(prefix_embs.device)  # (B,)
+            ab_t = self.alpha_bars[t_idx]  # (B,)
             sqrt_ab = torch.sqrt(ab_t)                        # (B,)
-            sqrt_one_minus_ab = torch.sqrt(1.0 - ab_t)        # (B,)
+            sqrt_bb = torch.sqrt(1.0 - ab_t)        # (B,)
 
             # expand to (B, 1, 1) to mix with (B, L, D)
             sqrt_ab = sqrt_ab[:, None, None]
-            sqrt_one_minus_ab = sqrt_one_minus_ab[:, None, None]
+            sqrt_bb = sqrt_bb[:, None, None]
 
             # DDIM forward-marginal style noisy conditioning:
             # x_t = sqrt(alpha_bar_t) * x0 + sqrt(1 - alpha_bar_t) * eps
-            noisy_prefix_embs = sqrt_ab * prefix_embs + sqrt_one_minus_ab * noise_prefix
+            noisy_prefix_embs = sqrt_ab * prefix_embs + sqrt_bb * noise_prefix
 
         # Compute image and language key value cache
         prefix_att_2d_masks_4d = self._prepare_attention_masks_4d(prefix_att_2d_masks)

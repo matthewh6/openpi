@@ -474,7 +474,7 @@ class TrainConfig:
     pytorch_weight_path: str | None = None
 
     # Precision for PyTorch training.
-    pytorch_training_precision: Literal["bfloat16", "float32"] = "bfloat16"
+    pytorch_training_precision: Literal["bfloat16", "float32"] = "float32"
 
     lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.CosineDecaySchedule)
     optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)

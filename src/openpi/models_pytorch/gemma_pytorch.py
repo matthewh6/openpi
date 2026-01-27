@@ -1,3 +1,4 @@
+import inspect
 from typing import Literal
 
 import pytest
@@ -7,6 +8,14 @@ from transformers import GemmaForCausalLM
 from transformers import PaliGemmaForConditionalGeneration
 from transformers.models.auto import CONFIG_MAPPING
 from transformers.models.gemma import modeling_gemma
+
+
+def _layernorm_supports_cond(layernorm: nn.Module) -> bool:
+    """Returns True if the layernorm forward accepts a `cond` kwarg."""
+    try:
+        return "cond" in inspect.signature(layernorm.forward).parameters
+    except (ValueError, TypeError):
+        return False
 
 
 class PaliGemmaWithExpertModel(nn.Module):
@@ -164,7 +173,11 @@ class PaliGemmaWithExpertModel(nn.Module):
                 gates = []
                 for i, hidden_states in enumerate(inputs_embeds):
                     layer = models[i].layers[layer_idx]
-                    hidden_states, gate = layer.input_layernorm(hidden_states, cond=adarms_cond[i])  # noqa: PLW2901
+                    if _layernorm_supports_cond(layer.input_layernorm):
+                        hidden_states, gate = layer.input_layernorm(hidden_states, cond=adarms_cond[i])  # noqa: PLW2901
+                    else:
+                        hidden_states = layer.input_layernorm(hidden_states)
+                        gate = None
                     gates.append(gate)
 
                     input_shape = hidden_states.shape[:-1]
@@ -224,7 +237,11 @@ class PaliGemmaWithExpertModel(nn.Module):
                     # first residual
                     out_emb = modeling_gemma._gated_residual(hidden_states, out_emb, gates[i])  # noqa: SLF001
                     after_first_residual = out_emb.clone()
-                    out_emb, gate = layer.post_attention_layernorm(out_emb, cond=adarms_cond[i])
+                    if _layernorm_supports_cond(layer.post_attention_layernorm):
+                        out_emb, gate = layer.post_attention_layernorm(out_emb, cond=adarms_cond[i])
+                    else:
+                        out_emb = layer.post_attention_layernorm(out_emb)
+                        gate = None
                     # Convert to bfloat16 if the next layer (mlp) uses bfloat16
                     if layer.mlp.up_proj.weight.dtype == torch.bfloat16:
                         out_emb = out_emb.to(dtype=torch.bfloat16)
@@ -262,7 +279,11 @@ class PaliGemmaWithExpertModel(nn.Module):
             def compute_final_norms(inputs_embeds, adarms_cond):
                 outputs_embeds = []
                 for i, hidden_states in enumerate(inputs_embeds):
-                    out_emb, _ = models[i].norm(hidden_states, cond=adarms_cond[i])
+                    norm_layer = models[i].norm
+                    if _layernorm_supports_cond(norm_layer):
+                        out_emb, _ = norm_layer(hidden_states, cond=adarms_cond[i])
+                    else:
+                        out_emb = norm_layer(hidden_states)
                     outputs_embeds.append(out_emb)
                 return outputs_embeds
 
