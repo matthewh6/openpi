@@ -542,8 +542,6 @@ class TrainConfig:
     # data parallel between 2 groups of devices.
     fsdp_devices: int = 1
     
-    language_dropout_rate: float = 0.0
-
     @property
     def assets_dirs(self) -> pathlib.Path:
         """Get the assets directory for this config."""
@@ -906,14 +904,13 @@ _CONFIGS = [
         num_workers=0,  # Important: RLDS DataLoader requires num_workers=0, handles multi-processing internally
     ),
     TrainConfig(
-        # This config is for fine-tuning pi05 on the *full* DROID dataset.
-        # We use RLDS data loading to make training on this large dataset tractable.
-        # For fine-tuning on your own DROID dataset, see below.
+        # Finetuning with language dropout
         name="pi0_full_droid_finetune_dropout",
         model=pi0_config.Pi0Config(
             pi05=False,
             action_dim=32,
             action_horizon=16,
+            language_dropout_rate=0.2,
         ),
         data=RLDSDroidDataConfig(
             repo_id="droid/1.0.1",
@@ -939,7 +936,6 @@ _CONFIGS = [
         save_interval=5000,
         keep_period=10_000,
         num_workers=0,  # Important: RLDS DataLoader requires num_workers=0, handles multi-processing internally
-        language_dropout_rate=0.2,
     ),
     TrainConfig(
         # This config is for fine-tuning pi05 on the *full* DROID dataset.
