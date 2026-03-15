@@ -35,7 +35,7 @@ def resize_image(image, size):
 
 
 def main(data_dir: str, *, push_to_hub: bool = False):
-    # Clean up any existing dataset in the output directory
+    # Clean up any existing dataset in the output directory 
     output_path = HF_LEROBOT_HOME / REPO_NAME
     if output_path.exists():
         shutil.rmtree(output_path)

@@ -42,6 +42,7 @@ import wandb
 
 import openpi.models.pi0_config
 import openpi.models_pytorch.pi0_pytorch
+import openpi.models_pytorch.postbc_pytorch
 import openpi.models_pytorch.tmpi0_pytorch
 import openpi.shared.normalize as _normalize
 import openpi.training.config as _config
@@ -407,10 +408,15 @@ def train_loop(config: _config.TrainConfig):
         # Update dtype to match pytorch_training_precision
         object.__setattr__(model_cfg, "dtype", config.pytorch_training_precision)
 
-    # model = openpi.models_pytorch.pi0_pytorch.PI0Pytorch(model_cfg).to(device)
-    print(model_cfg)
-    print("Training TMPi0Pytorch")
-    model = openpi.models_pytorch.tmpi0_pytorch.TMPI0Pytorch(model_cfg).to(device)
+    if config.name.startswith("postbc"):
+        logging.info("Building PostBCPytorch model")
+        model = openpi.models_pytorch.postbc_pytorch.PostBCPytorch(model_cfg).to(device)
+    elif config.name.startswith("tmpi0"):
+        logging.info("Building TMPI0Pytorch model")
+        model = openpi.models_pytorch.tmpi0_pytorch.TMPI0Pytorch(model_cfg).to(device)
+    else:
+        logging.info("Building PI0Pytorch model")
+        model = openpi.models_pytorch.pi0_pytorch.PI0Pytorch(model_cfg).to(device)
 
     if hasattr(model, "gradient_checkpointing_enable"):
         enable_gradient_checkpointing = True
@@ -447,9 +453,8 @@ def train_loop(config: _config.TrainConfig):
         logging.info(f"Loading weights from: {config.pytorch_weight_path}")
 
         model_path = os.path.join(config.pytorch_weight_path, "model.safetensors")
-        safetensors.torch.load_model(
-            (model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model), model_path
-        )
+        model_to_load = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+        safetensors.torch.load_model(model_to_load, model_path, strict=False)
         logging.info(f"Loaded PyTorch weights from {config.pytorch_weight_path}")
 
     # Optimizer + learning rate schedule from config
@@ -482,6 +487,31 @@ def train_loop(config: _config.TrainConfig):
         progress = min(1.0, (step - warmup_steps) / max(1, decay_steps - warmup_steps))
         cos = 0.5 * (1 + np.cos(np.pi * progress))
         return end_lr + (peak_lr - end_lr) * cos
+
+    # --- POSTBC: fit the variance ensemble before main training ---
+    raw_model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+    if isinstance(raw_model, openpi.models_pytorch.postbc_pytorch.PostBCPytorch):
+        logging.info("PostBC detected — collecting dataset for ensemble fitting...")
+        ensemble_states, ensemble_actions = [], []
+        max_ensemble_samples = 50_000
+        collected = 0
+        for obs_batch, act_batch in loader:
+            obs_batch = jax.tree.map(lambda x: x.to(device), obs_batch)
+            act_batch = act_batch.to(torch.float32).to(device)
+            ensemble_states.append(obs_batch.state.float())
+            ensemble_actions.append(act_batch)
+            collected += act_batch.shape[0]
+            if collected >= max_ensemble_samples:
+                break
+        all_states = torch.cat(ensemble_states, dim=0)[:max_ensemble_samples]
+        all_actions = torch.cat(ensemble_actions, dim=0)[:max_ensemble_samples]
+        logging.info(f"Collected {all_states.shape[0]} samples. Fitting ensemble...")
+        raw_model.fit_ensemble(all_states, all_actions, num_epochs=500, batch_size=256, device=device)
+        del all_states, all_actions, ensemble_states, ensemble_actions
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        logging.info("Ensemble fitting complete.")
 
     model.train()
     start_time = time.time()

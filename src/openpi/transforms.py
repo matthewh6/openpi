@@ -216,7 +216,8 @@ class DeltaActions(DataTransformFn):
         state, actions = data["state"], data["actions"]
         mask = np.asarray(self.mask)
         dims = mask.shape[-1]
-        actions = actions.copy() # avoid read only
+        # actions = actions.copy() # avoid read only
+        actions = actions
         actions[..., :dims] -= np.expand_dims(np.where(mask, state[..., :dims], 0), axis=-2)
         data["actions"] = actions
 

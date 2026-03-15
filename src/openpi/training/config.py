@@ -707,6 +707,18 @@ _CONFIGS = [
         pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch",
     ),
     TrainConfig(
+        name="postbc_libero",
+        model=pi0_config.Pi0Config(),
+        data=LeRobotLiberoDataConfig(
+            repo_id="physical-intelligence/libero",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=30_000,
+        pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch",
+    ),
+    TrainConfig(
         name="pi0_fast_libero",
         # Here is an example of loading a pi0-FAST model for full finetuning.
         # Modify action_dim and action_horizon to match your dataset (action horizon is equal to
@@ -897,7 +909,7 @@ _CONFIGS = [
             decay_lr=5e-5,
         ),
         num_train_steps=100_000,
-        batch_size=32,
+        batch_size=256,
         log_interval=100,
         save_interval=5000,
         keep_period=10_000,
@@ -931,7 +943,7 @@ _CONFIGS = [
             decay_lr=5e-5,
         ),
         num_train_steps=100_000,
-        batch_size=32,
+        batch_size=256,
         log_interval=100,
         save_interval=5000,
         keep_period=10_000,
@@ -1034,7 +1046,7 @@ _CONFIGS = [
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_droid/params"),
         num_train_steps=20_000,
-        batch_size=32,
+        batch_size=256,
     ),
     #
     # ALOHA Sim configs. This config is used to demonstrate how to train on a simple simulated environment.

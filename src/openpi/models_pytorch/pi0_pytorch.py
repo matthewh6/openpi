@@ -124,11 +124,6 @@ class PI0Pytorch(nn.Module):
             raise ValueError(msg) from None
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        self.droupout = config.droupout_rate
-        if self.droupout > 0.0:
-            logging.info(f"Using dropout with rate {self.droupout} in PI0Pytorch model")
-            self.dropout_layer = nn.Dropout(self.droupout)
 
     def gradient_checkpointing_enable(self):
         """Enable gradient checkpointing for memory optimization."""

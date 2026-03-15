@@ -88,9 +88,12 @@ def init_train_state(
     tx = _optimizer.create_optimizer(config.optimizer, config.lr_schedule, weight_decay_mask=None)
 
     def init(rng: at.KeyArrayLike, partial_params: at.Params | None = None) -> training_utils.TrainState:
-        rng, model_rng = jax.random.split(rng)
+        # rng, model_rng = jax.random.split(rng)
         # initialize the model (and its parameters).
-        model = config.model.create(model_rng)
+        # model = config.model.create(model_rng)
+        
+        params_rng, dropout_rng = jax.random.split(rng)
+        model = config.model.create(nnx.Rngs(params=params_rng, dropout=dropout_rng))
 
         # Merge the partial params into the model.
         if partial_params is not None:
@@ -119,7 +122,12 @@ def init_train_state(
     if resume:
         return train_state_shape, state_sharding
 
-    partial_params = _load_weights_and_validate(config.weight_loader, train_state_shape.params.to_pure_dict())
+    # partial_params = _load_weights_and_validate(config.weight_loader, train_state_shape.params.to_pure_dict())
+    # replicated_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+    
+    params_only_spec = train_state_shape.params.filter(nnx.Param).to_pure_dict()
+    partial_params = _load_weights_and_validate(config.weight_loader, params_only_spec)
+    
     replicated_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
 
     # Initialize the train state and mix in the partial params.
@@ -142,20 +150,44 @@ def train_step(
 ) -> tuple[training_utils.TrainState, dict[str, at.Array]]:
     model = nnx.merge(state.model_def, state.params)
     model.train()
-
+    
     @at.typecheck
     def loss_fn(
-        model: _model.BaseModel, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions
+        model: _model.BaseModel, 
+        loss_rng: at.KeyArrayLike, # External RNG for noise/time
+        observation: _model.Observation, 
+        actions: _model.Actions
     ):
-        chunked_loss = model.compute_loss(rng, observation, actions, train=True)
+        # The model's internal self.rngs.dropout() handles language masking
+        # The loss_rng handles diffusion noise and time sampling
+        chunked_loss = model.compute_loss(loss_rng, observation, actions, train=True)
         return jnp.mean(chunked_loss)
 
-    train_rng = jax.random.fold_in(rng, state.step)
+    # Fold in the step to ensure fresh randomness every iteration
+    step_rng = jax.random.fold_in(rng, state.step)
     observation, actions = batch
 
     # Filter out frozen params.
     diff_state = nnx.DiffState(0, config.trainable_filter)
-    loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
+    
+    # --- CHANGE: Pass the step_rng to loss_fn ---
+    loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(
+        model, step_rng, observation, actions
+    )
+
+    # @at.typecheck
+    # def loss_fn(
+    #     model: _model.BaseModel, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions
+    # ):
+    #     chunked_loss = model.compute_loss(rng, observation, actions, train=True)
+    #     return jnp.mean(chunked_loss)
+
+    # train_rng = jax.random.fold_in(rng, state.step)
+    # observation, actions = batch
+
+    # # Filter out frozen params.
+    # diff_state = nnx.DiffState(0, config.trainable_filter)
+    # loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
 
     params = state.params.filter(config.trainable_filter)
     updates, new_opt_state = state.tx.update(grads, state.opt_state, params)
@@ -166,12 +198,25 @@ def train_step(
     new_params = nnx.state(model)
 
     new_state = dataclasses.replace(state, step=state.step + 1, params=new_params, opt_state=new_opt_state)
+    # if state.ema_decay is not None:
+    #     new_state = dataclasses.replace(
+    #         new_state,
+    #         ema_params=jax.tree.map(
+    #             lambda old, new: state.ema_decay * old + (1 - state.ema_decay) * new, state.ema_params, new_params
+    #         ),
+    #     )
+        
     if state.ema_decay is not None:
+        def ema_update(old, new):
+            # Only apply EMA to floating point arrays (weights, biases, etc.)
+            if jnp.issubdtype(getattr(new, "dtype", None), jnp.floating):
+                return state.ema_decay * old + (1 - state.ema_decay) * new
+            # For RNG keys or step counts, just take the new value
+            return new
+
         new_state = dataclasses.replace(
             new_state,
-            ema_params=jax.tree.map(
-                lambda old, new: state.ema_decay * old + (1 - state.ema_decay) * new, state.ema_params, new_params
-            ),
+            ema_params=jax.tree.map(ema_update, state.ema_params, new_params),
         )
 
     # Filter out params that aren't kernels.

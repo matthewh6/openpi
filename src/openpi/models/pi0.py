@@ -105,6 +105,7 @@ class Pi0(_model.BaseModel):
         self.language_dropout_rate = config.language_dropout_rate
         if self.language_dropout_rate > 0.0:
             logger.info(f"Using language dropout with rate {self.language_dropout_rate} in PI0 model")
+        self.rngs = rngs
 
     @at.typecheck
     def embed_prefix(
@@ -145,7 +146,7 @@ class Pi0(_model.BaseModel):
             elif train and self.language_dropout_rate > 0:
                 # Training: Probabilistic dropout
                 keep_mask = jax.random.bernoulli(
-                    nnx.make_rng("dropout"), 
+                    self.rngs.dropout(),  # Use the internal RNG stream
                     p=1.0 - self.language_dropout_rate, 
                     shape=(batch_size, 1)
                 )
