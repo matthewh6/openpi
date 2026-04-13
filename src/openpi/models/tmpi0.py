@@ -84,8 +84,8 @@ class TMPi0Config(Pi0Config):
         return _model.ModelType.TMPi05 if self.pi05 else _model.ModelType.TMPi0
 
     @override
-    def create(self, rng: at.KeyArrayLike) -> "TMPi0":
-        return TMPi0(self, rngs=nnx.Rngs(rng))
+    def create(self, rngs: nnx.Rngs) -> "TMPi0":
+        return TMPi0(self, rngs=rngs)
 
 
 class TMPi0(Pi0):
@@ -168,7 +168,7 @@ class TMPi0(Pi0):
 
         # forward pass of prefix
         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
-
+        
         # noise the prefix using a DDIM-style marginal controlled by time_prefix
         time_prefix = jax.random.uniform(time_prefix_rng, batch_shape)
         noise_prefix = jax.random.normal(noise_prefix_rng, prefix_tokens.shape)

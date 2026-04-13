@@ -35,9 +35,9 @@ class TMPI0Pytorch(PI0Pytorch):
         # Map continuous time in [0,1] to an alpha_bar in (0,1].
         # Here we construct a simple beta schedule and get cumulative alpha_bar(t).
         self.T = 1000
-        betas = torch.linspace(1e-4, 0.02, self.T, device=self.device)  # or your schedule
+        betas = torch.linspace(1e-4, 0.02, self.T)
         alphas = 1.0 - betas
-        self.alpha_bars = torch.cumprod(alphas, dim=0)  # (T,)
+        self.register_buffer('alpha_bars', torch.cumprod(alphas, dim=0))  # (T,)
 
     def sample_unif(self, shape, device):
         time = torch.rand(shape, dtype=torch.float32, device=device)

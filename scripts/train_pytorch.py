@@ -491,20 +491,20 @@ def train_loop(config: _config.TrainConfig):
     # --- POSTBC: fit the variance ensemble before main training ---
     raw_model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
     if isinstance(raw_model, openpi.models_pytorch.postbc_pytorch.PostBCPytorch):
-        logging.info("PostBC detected — collecting dataset for ensemble fitting...")
+        MAX_ENSEMBLE_SAMPLES = 50_000
+        logging.info(f"PostBC detected — collecting up to {MAX_ENSEMBLE_SAMPLES} samples for ensemble fitting...")
         ensemble_states, ensemble_actions = [], []
-        max_ensemble_samples = 50_000
-        collected = 0
+        n_collected = 0
         for obs_batch, act_batch in loader:
             obs_batch = jax.tree.map(lambda x: x.to(device), obs_batch)
             act_batch = act_batch.to(torch.float32).to(device)
             ensemble_states.append(obs_batch.state.float())
             ensemble_actions.append(act_batch)
-            collected += act_batch.shape[0]
-            if collected >= max_ensemble_samples:
+            n_collected += act_batch.shape[0]
+            if n_collected >= MAX_ENSEMBLE_SAMPLES:
                 break
-        all_states = torch.cat(ensemble_states, dim=0)[:max_ensemble_samples]
-        all_actions = torch.cat(ensemble_actions, dim=0)[:max_ensemble_samples]
+        all_states = torch.cat(ensemble_states, dim=0)
+        all_actions = torch.cat(ensemble_actions, dim=0)
         logging.info(f"Collected {all_states.shape[0]} samples. Fitting ensemble...")
         raw_model.fit_ensemble(all_states, all_actions, num_epochs=500, batch_size=256, device=device)
         del all_states, all_actions, ensemble_states, ensemble_actions

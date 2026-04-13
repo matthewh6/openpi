@@ -18,6 +18,7 @@ import openpi.models.pi0_config as pi0_config
 import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tmpi0 as tmpi0
 import openpi.models.tokenizer as _tokenizer
+import openpi.shared.nnx_utils as nnx_utils
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
@@ -685,6 +686,18 @@ _CONFIGS = [
         pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch",
     ),
     TrainConfig(
+        name="tmpi0_libero",
+        model=tmpi0.TMPi0Config(),
+        data=LeRobotLiberoDataConfig(
+            repo_id="physical-intelligence/libero",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=30_000,
+        pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/cspi0_libero",
+    ),
+    TrainConfig(
         name="pi0_libero_low_mem_finetune",
         # Here is an example of loading a pi0 model for LoRA fine-tuning.
         model=pi0_config.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"),
@@ -950,15 +963,16 @@ _CONFIGS = [
         num_workers=0,  # Important: RLDS DataLoader requires num_workers=0, handles multi-processing internally
     ),
     TrainConfig(
-        # This config is for fine-tuning pi05 on the *full* DROID dataset.
+        # This config is for fine-tuning TMPi0 on the *full* DROID dataset.
         # We use RLDS data loading to make training on this large dataset tractable.
-        # For fine-tuning on your own DROID dataset, see below.
+        #
+        # VLM (SigLIP vision encoder + PaliGemma LLM) is FROZEN so that the flow
+        # action head learns to generate actions conditioned on prefix embeddings at
+        # different DDIM noise levels.  Only the action expert and its projection
+        # layers are trained.  This is essential for the TMPi0 argument: the VLM
+        # embeddings are fixed, and the policy must learn to act across the full
+        # range of noise corruption applied to those embeddings during training.
         name="tmpi0_full_droid_finetune",
-        # model=pi0_config.Pi0Config(
-        #     pi05=False,
-        #     action_dim=32,
-        #     action_horizon=16,
-        # ),
         model=tmpi0.TMPi0Config(
             pi05=False,
             action_dim=32,
@@ -976,6 +990,17 @@ _CONFIGS = [
             ),
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        # Freeze the VLM: SigLIP vision encoder (.*img.*) and PaliGemma LLM backbone
+        # (.*llm.* minus the action expert which uses the _1 index suffix).
+        # This prevents the VLM from drifting and preserves the argument that the
+        # flow head learns to condition on noise-corrupted VLM embeddings.
+        freeze_filter=nnx.Any(
+            nnx_utils.PathRegex(".*img.*"),  # SigLIP vision encoder
+            nnx.All(
+                nnx_utils.PathRegex(".*llm.*"),          # all LLM params ...
+                nnx.Not(nnx_utils.PathRegex(".*_1.*")),  # ... except action expert
+            ),
+        ),
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
             peak_lr=5e-5,
