@@ -43,7 +43,7 @@ import wandb
 import openpi.models.pi0_config
 import openpi.models_pytorch.pi0_pytorch
 import openpi.models_pytorch.postbc_pytorch
-import openpi.models_pytorch.tmpi0_pytorch
+import openpi.models_pytorch.cspi0_pytorch
 import openpi.shared.normalize as _normalize
 import openpi.training.config as _config
 import openpi.training.data_loader as _data
@@ -411,9 +411,9 @@ def train_loop(config: _config.TrainConfig):
     if config.name.startswith("postbc"):
         logging.info("Building PostBCPytorch model")
         model = openpi.models_pytorch.postbc_pytorch.PostBCPytorch(model_cfg).to(device)
-    elif config.name.startswith("tmpi0"):
+    elif config.name.startswith("cspi0"):
         logging.info("Building TMPI0Pytorch model")
-        model = openpi.models_pytorch.tmpi0_pytorch.TMPI0Pytorch(model_cfg).to(device)
+        model = openpi.models_pytorch.cspi0_pytorch.TMPI0Pytorch(model_cfg).to(device)
     else:
         logging.info("Building PI0Pytorch model")
         model = openpi.models_pytorch.pi0_pytorch.PI0Pytorch(model_cfg).to(device)
@@ -463,9 +463,40 @@ def train_loop(config: _config.TrainConfig):
     decay_steps = config.lr_schedule.decay_steps
     end_lr = config.lr_schedule.decay_lr
 
-    # Create optimizer with config parameters
+    # For cspi0 configs, freeze the VLM (SigLIP vision encoder + PaliGemma LLM backbone)
+    # and only train the action expert + projection heads.
+    # config.freeze_filter is a JAX/NNX concept not read by this PyTorch trainer,
+    # so we implement the freeze directly here.
+    _VLM_FREEZE_PREFIXES = (
+        "paligemma_with_expert.paligemma.vision_tower.",
+        "paligemma_with_expert.paligemma.language_model.",
+        "paligemma_with_expert.paligemma.multi_modal_projector.",
+    )
+    _ACTION_EXPERT_PREFIXES = (
+        "paligemma_with_expert.gemma_expert.",
+        "state_proj.",
+        "action_in_proj.",
+        "action_time_mlp_in.",
+        "action_time_mlp_out.",
+        "action_out_proj.",
+        "time_mlp_in.",
+        "time_mlp_out.",
+    )
+    if config.name.startswith("cspi0"):
+        raw_model_for_freeze = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+        for name, param in raw_model_for_freeze.named_parameters():
+            is_trainable = any(name.startswith(pfx) for pfx in _ACTION_EXPERT_PREFIXES)
+            param.requires_grad_(is_trainable)
+        trainable_params = sum(p.numel() for p in raw_model_for_freeze.parameters() if p.requires_grad)
+        frozen_params = sum(p.numel() for p in raw_model_for_freeze.parameters() if not p.requires_grad)
+        logging.info(
+            f"cspi0 VLM freeze: trainable={trainable_params / 1e6:.1f}M params, "
+            f"frozen={frozen_params / 1e6:.1f}M params"
+        )
+
+    # Create optimizer with config parameters (only over trainable params)
     optim = torch.optim.AdamW(
-        model.parameters(),
+        [p for p in model.parameters() if p.requires_grad],
         lr=peak_lr,
         betas=(config.optimizer.b1, config.optimizer.b2),
         eps=config.optimizer.eps,
@@ -576,8 +607,11 @@ def train_loop(config: _config.TrainConfig):
             if global_step < 5 and is_main and torch.cuda.is_available():
                 log_memory_usage(device, global_step, "after_backward")
 
-            # Gradient clipping
-            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.optimizer.clip_gradient_norm)
+            # Gradient clipping (only over trainable params)
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                [p for p in model.parameters() if p.requires_grad],
+                max_norm=config.optimizer.clip_gradient_norm,
+            )
 
             # Optimizer step
             optim.step()

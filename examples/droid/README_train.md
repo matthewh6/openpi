@@ -30,7 +30,7 @@ First, change the `rlds_data_dir` path in your `TrainConfig` to the directory th
 
 Then, compute normalization statistics (this will take ~10 minutes):
 ```bash
-uv run --group rlds scripts/compute_norm_stats.py --config-name tmpi0_full_droid_finetune --max-frames 10_000_000
+uv run --group rlds scripts/compute_norm_stats.py --config-name cspi0_full_droid_finetune --max-frames 10_000_000
 ```
 
 Run training:

@@ -16,7 +16,7 @@ import tyro
 import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
 import openpi.models.pi0_fast as pi0_fast
-import openpi.models.tmpi0 as tmpi0
+import openpi.models.cspi0 as cspi0
 import openpi.models.tokenizer as _tokenizer
 import openpi.shared.nnx_utils as nnx_utils
 import openpi.policies.aloha_policy as aloha_policy
@@ -124,8 +124,8 @@ class ModelTransformFactory(GroupFactory):
                         _transforms.PadStatesAndActions(model_config.action_dim),
                     ],
                 )
-            case _model.ModelType.TMPi0:
-                assert isinstance(model_config, tmpi0.TMPi0Config)
+            case _model.ModelType.CSPi0:
+                assert isinstance(model_config, cspi0.CSPi0Config)
                 return _transforms.Group(
                     inputs=[
                         _transforms.InjectDefaultPrompt(self.default_prompt),
@@ -198,7 +198,7 @@ class DataConfigFactory(abc.ABC):
             repo_id=repo_id,
             asset_id=asset_id,
             norm_stats=self._load_norm_stats(epath.Path(self.assets.assets_dir or assets_dirs), asset_id),
-            use_quantile_norm=model_config.model_type != ModelType.PI0 and model_config.model_type != ModelType.TMPi0,
+            use_quantile_norm=model_config.model_type != ModelType.PI0 and model_config.model_type != ModelType.CSPi0,
         )
 
     def _load_norm_stats(self, assets_dir: epath.Path, asset_id: str | None) -> dict[str, _transforms.NormStats] | None:
@@ -415,6 +415,58 @@ class RLDSDroidDataConfig(DataConfigFactory):
             )
 
         model_transforms = ModelTransformFactory()(model_config)
+
+        assert self.rlds_data_dir is not None, "Need to set rlds data dir for RLDS data loader."
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            rlds_data_dir=self.rlds_data_dir,
+            action_space=self.action_space,
+            filter_dict_path=self.filter_dict_path,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class RLDSDroidNoLangDataConfig(RLDSDroidDataConfig):
+    """
+    Like RLDSDroidDataConfig but ignores per-episode language annotations.
+    Injects an empty string prompt so the model receives no language conditioning.
+    """
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/exterior_image_1_left": "observation/image",
+                        "observation/wrist_image_left": "observation/wrist_image",
+                        "observation/joint_position": "observation/joint_position",
+                        "observation/gripper_position": "observation/gripper_position",
+                        "actions": "actions",
+                        # "prompt" intentionally omitted — empty default injected below
+                    }
+                )
+            ]
+        )
+
+        data_transforms = _transforms.Group(
+            inputs=[droid_policy.DroidInputs(model_type=model_config.model_type)],
+            outputs=[droid_policy.DroidOutputs()],
+        )
+
+        if self.action_space == droid_rlds_dataset.DroidActionSpace.JOINT_POSITION:
+            delta_action_mask = _transforms.make_bool_mask(7, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        # Empty string prompt — model sees no language conditioning.
+        model_transforms = ModelTransformFactory(default_prompt="")(model_config)
 
         assert self.rlds_data_dir is not None, "Need to set rlds data dir for RLDS data loader."
 
@@ -686,14 +738,21 @@ _CONFIGS = [
         pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/pi0_base_pytorch",
     ),
     TrainConfig(
-        name="tmpi0_libero",
-        model=tmpi0.TMPi0Config(),
+        name="cspi0_libero",
+        model=cspi0.CSPi0Config(),
         data=LeRobotLiberoDataConfig(
             repo_id="physical-intelligence/libero",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=True,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        freeze_filter=nnx.Any(
+            nnx_utils.PathRegex(".*img.*"),  # SigLIP vision encoder
+            nnx.All(
+                nnx_utils.PathRegex(".*llm.*"),          # all LLM params ...
+                nnx.Not(nnx_utils.PathRegex(".*_1.*")),  # ... except action expert
+            ),
+        ),
         num_train_steps=30_000,
         pytorch_weight_path="/gpfs/scrubbed/hongmm/.cache/openpi/openpi-assets/checkpoints/cspi0_libero",
     ),
@@ -929,18 +988,17 @@ _CONFIGS = [
         num_workers=0,  # Important: RLDS DataLoader requires num_workers=0, handles multi-processing internally
     ),
     TrainConfig(
-        # Finetuning with language dropout
-        name="pi0_full_droid_finetune_dropout",
+        # Fine-tune pi0 on the full DROID dataset without any language conditioning.
+        # Uses an empty prompt — state is a continuous suffix input (pi0 architecture), so
+        # the model receives only [BOS, "\n"] as language tokens (effectively no task description).
+        name="pi0_full_droid_finetune_no_lang",
         model=pi0_config.Pi0Config(
             pi05=False,
             action_dim=32,
             action_horizon=16,
-            language_dropout_rate=0.2,
         ),
-        data=RLDSDroidDataConfig(
+        data=RLDSDroidNoLangDataConfig(
             repo_id="droid/1.0.1",
-            # Set this to the path to your DROID RLDS dataset (the parent directory of the `droid` directory).
-            # rlds_data_dir="/mnt/pi-data/kevin",
             rlds_data_dir="/gpfs/scrubbed/hongmm",
             action_space=droid_rlds_dataset.DroidActionSpace.JOINT_POSITION,
             assets=AssetsConfig(
@@ -960,20 +1018,20 @@ _CONFIGS = [
         log_interval=100,
         save_interval=5000,
         keep_period=10_000,
-        num_workers=0,  # Important: RLDS DataLoader requires num_workers=0, handles multi-processing internally
+        num_workers=0,
     ),
     TrainConfig(
-        # This config is for fine-tuning TMPi0 on the *full* DROID dataset.
+        # This config is for fine-tuning CSPi0 on the *full* DROID dataset.
         # We use RLDS data loading to make training on this large dataset tractable.
         #
         # VLM (SigLIP vision encoder + PaliGemma LLM) is FROZEN so that the flow
         # action head learns to generate actions conditioned on prefix embeddings at
         # different DDIM noise levels.  Only the action expert and its projection
-        # layers are trained.  This is essential for the TMPi0 argument: the VLM
+        # layers are trained.  This is essential for the CSPi0 argument: the VLM
         # embeddings are fixed, and the policy must learn to act across the full
         # range of noise corruption applied to those embeddings during training.
-        name="tmpi0_full_droid_finetune",
-        model=tmpi0.TMPi0Config(
+        name="cspi0_full_droid_finetune",
+        model=cspi0.CSPi0Config(
             pi05=False,
             action_dim=32,
             action_horizon=16,
@@ -1048,6 +1106,38 @@ _CONFIGS = [
         save_interval=5000,
         keep_period=10_000,
         num_workers=0,  # Important: RLDS DataLoader requires num_workers=0, handles multi-processing internally
+    ),
+    TrainConfig(
+        # Fine-tune pi05 on the full DROID dataset without any language conditioning.
+        # Uses an empty prompt so the model is trained purely on vision + proprioception.
+        name="pi05_full_droid_finetune_no_lang",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,
+            action_horizon=16,
+        ),
+        data=RLDSDroidNoLangDataConfig(
+            repo_id="droid",
+            rlds_data_dir="/gpfs/scrubbed/hongmm",
+            action_space=droid_rlds_dataset.DroidActionSpace.JOINT_POSITION,
+            assets=AssetsConfig(
+                assets_dir="gs://openpi-assets/checkpoints/pi05_base/assets/",
+                asset_id="droid",
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        num_train_steps=100_000,
+        batch_size=256,
+        log_interval=100,
+        save_interval=5000,
+        keep_period=10_000,
+        num_workers=0,
     ),
     TrainConfig(
         # This config is for fine-tuning pi05-DROID on a custom (smaller) DROID dataset.

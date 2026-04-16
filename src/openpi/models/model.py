@@ -18,7 +18,7 @@ import safetensors
 import torch
 
 from openpi.models_pytorch import pi0_pytorch
-from openpi.models_pytorch import tmpi0_pytorch
+from openpi.models_pytorch import cspi0_pytorch
 from openpi.shared import image_tools
 import openpi.shared.array_typing as at
 
@@ -34,8 +34,8 @@ class ModelType(enum.Enum):
     PI0 = "pi0"
     PI0_FAST = "pi0_fast"
     PI05 = "pi05"
-    TMPi0 = "tmpi0"
-    TMPi05 = "tmpi05"
+    CSPi0 = "cspi0"
+    CSPi05 = "cspi05"
 
 
 # The model always expects these images
@@ -249,7 +249,7 @@ class BaseModelConfig(abc.ABC):
             "pi0_lora_finetune" in weight_path or "pi0_full_finetune" in weight_path
         ):  # TODO: brittle if statement, but use for now to seperate TM from DSRL
             logger.info("Loading TMPI0Pytorch")
-            model = tmpi0_pytorch.TMPI0Pytorch(config=train_config.model)
+            model = cspi0_pytorch.TMPI0Pytorch(config=train_config.model)
         else:
             logger.info("Loading PI0Pytorch")
             model = pi0_pytorch.PI0Pytorch(config=train_config.model)

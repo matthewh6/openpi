@@ -76,20 +76,20 @@ def posemb_dual_sincos(
 
 
 @dataclasses.dataclass(frozen=True)
-class TMPi0Config(Pi0Config):
+class CSPi0Config(Pi0Config):
 
     @property
     @override
     def model_type(self) -> _model.ModelType:
-        return _model.ModelType.TMPi05 if self.pi05 else _model.ModelType.TMPi0
+        return _model.ModelType.CSPi05 if self.pi05 else _model.ModelType.CSPi0
 
     @override
-    def create(self, rngs: nnx.Rngs) -> "TMPi0":
-        return TMPi0(self, rngs=rngs)
+    def create(self, rngs: nnx.Rngs) -> "CSPi0":
+        return CSPi0(self, rngs=rngs)
 
 
-class TMPi0(Pi0):
-    def __init__(self, config: TMPi0Config, rngs: nnx.Rngs):
+class CSPi0(Pi0):
+    def __init__(self, config: CSPi0Config, rngs: nnx.Rngs):
         super().__init__(config, rngs)
         self.T = 1000
         betas = np.linspace(1e-4, 0.02, self.T, dtype=np.float32)
