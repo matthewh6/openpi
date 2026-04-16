@@ -248,8 +248,8 @@ class BaseModelConfig(abc.ABC):
         if (
             "pi0_lora_finetune" in weight_path or "pi0_full_finetune" in weight_path
         ):  # TODO: brittle if statement, but use for now to seperate TM from DSRL
-            logger.info("Loading TMPI0Pytorch")
-            model = cspi0_pytorch.TMPI0Pytorch(config=train_config.model)
+            logger.info("Loading CSPi0Pytorch")
+            model = cspi0_pytorch.CSPi0Pytorch(config=train_config.model)
         else:
             logger.info("Loading PI0Pytorch")
             model = pi0_pytorch.PI0Pytorch(config=train_config.model)

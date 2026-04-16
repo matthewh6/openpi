@@ -412,8 +412,8 @@ def train_loop(config: _config.TrainConfig):
         logging.info("Building PostBCPytorch model")
         model = openpi.models_pytorch.postbc_pytorch.PostBCPytorch(model_cfg).to(device)
     elif config.name.startswith("cspi0"):
-        logging.info("Building TMPI0Pytorch model")
-        model = openpi.models_pytorch.cspi0_pytorch.TMPI0Pytorch(model_cfg).to(device)
+        logging.info("Building CSPi0Pytorch model")
+        model = openpi.models_pytorch.cspi0_pytorch.CSPi0Pytorch(model_cfg).to(device)
     else:
         logging.info("Building PI0Pytorch model")
         model = openpi.models_pytorch.pi0_pytorch.PI0Pytorch(model_cfg).to(device)
@@ -482,15 +482,15 @@ def train_loop(config: _config.TrainConfig):
         "time_mlp_in.",
         "time_mlp_out.",
     )
-    if config.name.startswith("cspi0"):
-        raw_model_for_freeze = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+    raw_model_for_freeze = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+    if isinstance(raw_model_for_freeze, openpi.models_pytorch.cspi0_pytorch.CSPi0Pytorch):
         for name, param in raw_model_for_freeze.named_parameters():
             is_trainable = any(name.startswith(pfx) for pfx in _ACTION_EXPERT_PREFIXES)
             param.requires_grad_(is_trainable)
         trainable_params = sum(p.numel() for p in raw_model_for_freeze.parameters() if p.requires_grad)
         frozen_params = sum(p.numel() for p in raw_model_for_freeze.parameters() if not p.requires_grad)
         logging.info(
-            f"cspi0 VLM freeze: trainable={trainable_params / 1e6:.1f}M params, "
+            f"CSPi0 VLM freeze: trainable={trainable_params / 1e6:.1f}M params, "
             f"frozen={frozen_params / 1e6:.1f}M params"
         )
 

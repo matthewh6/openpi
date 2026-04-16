@@ -27,7 +27,7 @@ def create_dual_sinusoidal_pos_embedding(
     return torch.cat([torch.sin(sin_input), torch.cos(sin_input), torch.sin(sin_input_prefix), torch.cos(sin_input_prefix)], dim=1)
 
 
-class TMPI0Pytorch(PI0Pytorch):
+class CSPi0Pytorch(PI0Pytorch):
     def __init__(self, config):
         super().__init__(config)
 
